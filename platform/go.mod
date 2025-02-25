@@ -1,4 +1,4 @@
-module platform
+module github.com/go-park-mail-ru/2025_1_Quza/platform
 
 go 1.23.6
 
