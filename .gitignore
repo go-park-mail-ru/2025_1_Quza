@@ -6,7 +6,6 @@ out/
 
 bin/
 pkg/
-!platform/pkg/
 
 vendor/
 
