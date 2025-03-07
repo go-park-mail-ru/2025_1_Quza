@@ -9,11 +9,36 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 )
+
+var validate *validator.Validate
+
+type SignUpRequest struct {
+	Name     string `json:"name" validate:"required"`
+	Email    string `json:"email" validate:"required, email"`
+	Password string `json:"password" validate:"required,gte=8,lte=254"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email" validate:"required, email"`
+	Password string `json:"password" validate:"required,gte=0,lte=254"`
+}
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+type UploadRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	File     string `json:"file" validate:"required"`
+	FileName string `json:"file_name" validate:"required"`
+}
 
 type User struct {
 	Name     string `json:"name"`
@@ -32,9 +57,9 @@ type Session struct {
 	ExpiresAt    time.Time
 }
 
-var users = map[string]User{}
+var users sync.Map
 
-var sessions = map[string]Session{}
+var sessions sync.Map
 
 var secretKey []byte
 
@@ -44,17 +69,18 @@ const (
 )
 
 func handleSignUp(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name     string `json:"name"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var req SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
 	}
 
-	if _, exists := users[req.Email]; exists {
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		return
+	}
+
+	if _, exists := users.Load(req.Email); exists {
 		http.Error(w, "Пользователь с таким email уже существует", http.StatusBadRequest)
 		return
 	}
@@ -64,50 +90,58 @@ func handleSignUp(w http.ResponseWriter, r *http.Request) {
 		Email:    req.Email,
 		Password: req.Password,
 	}
-	users[req.Email] = user
+	users.Store(user.Email, user)
 
 	w.WriteHeader(http.StatusCreated)
 	_, _ = fmt.Fprintf(w, "Пользователь %s успешно зарегистрирован\n", user.Email)
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
 	}
 
-	user, ok := users[req.Email]
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		return
+	}
+
+	user, ok := users.Load(req.Email)
 	if !ok {
 		http.Error(w, "Пользователь не найден", http.StatusUnauthorized)
 		return
 	}
 
-	if user.Password != req.Password {
+	us, ok := user.(User)
+	if !ok {
+		http.Error(w, "Ошибка при конвертации пользователя", http.StatusInternalServerError)
+		return
+	}
+
+	if us.Password != req.Password {
 		http.Error(w, "Неверный пароль", http.StatusUnauthorized)
 		return
 	}
 
-	accessToken, err := generateJWT(user.Email, accessTokenTTL)
+	accessToken, err := generateJWT(us.Email, accessTokenTTL)
 	if err != nil {
 		http.Error(w, "Не удалось сгенерировать access-токен", http.StatusInternalServerError)
 		return
 	}
 
-	refreshToken, err := generateJWT(user.Email, refreshTokenTTL)
+	refreshToken, err := generateJWT(us.Email, refreshTokenTTL)
 	if err != nil {
 		http.Error(w, "Не удалось сгенерировать refresh-токен", http.StatusInternalServerError)
 		return
 	}
 
-	sessions[refreshToken] = Session{
-		Email:        user.Email,
+	sessions.Store(refreshToken, Session{
+		Email:        us.Email,
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(refreshTokenTTL),
-	}
+	})
 
 	resp := map[string]string{
 		"access_token":  accessToken,
@@ -121,29 +155,38 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRefresh(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
+	var req RefreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
 	}
 
-	session, ok := sessions[req.RefreshToken]
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		return
+	}
+
+	session, ok := sessions.Load(req.RefreshToken)
 	if !ok {
 		http.Error(w, "refresh-токен не найден или отозван", http.StatusUnauthorized)
 		return
 	}
 
-	if time.Now().After(session.ExpiresAt) {
-		delete(sessions, req.RefreshToken)
+	formatSession, ok := session.(Session)
+	if !ok {
+		http.Error(w, "Ошибка при конвертации сессии", http.StatusInternalServerError)
+		return
+	}
+
+	if time.Now().After(formatSession.ExpiresAt) {
+		sessions.Delete(req.RefreshToken)
 		http.Error(w, "refresh-токен просрочен", http.StatusUnauthorized)
 		return
 	}
 
 	claims, err := parseJWT(req.RefreshToken)
 	if err != nil {
-		delete(sessions, req.RefreshToken)
+		sessions.Delete(req.RefreshToken)
 		http.Error(w, "refresh-токен невалиден", http.StatusUnauthorized)
 		return
 	}
@@ -159,13 +202,13 @@ func handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delete(sessions, req.RefreshToken)
+	sessions.Delete(req.RefreshToken)
 
-	sessions[newRefresh] = Session{
+	sessions.Store(newAccess, Session{
 		Email:        claims.Email,
 		RefreshToken: newRefresh,
 		ExpiresAt:    time.Now().Add(refreshTokenTTL),
-	}
+	})
 
 	resp := map[string]string{
 		"access_token":  newAccess,
@@ -179,19 +222,22 @@ func handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
+	var req RefreshRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
 	}
 
-	if _, ok := sessions[req.RefreshToken]; !ok {
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		return
+	}
+
+	if _, ok := sessions.Load(req.RefreshToken); !ok {
 		http.Error(w, "refresh-токен не найден или уже отозван", http.StatusUnauthorized)
 		return
 	}
-	delete(sessions, req.RefreshToken)
+	sessions.Delete(req.RefreshToken)
 	w.WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprintln(w, "Вы успешно вышли из системы")
 }
@@ -203,15 +249,21 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := users[email]
+	user, ok := users.Load(email)
 	if !ok {
 		http.Error(w, "Неверный логин или пароль", http.StatusNotFound)
 		return
 	}
 
+	usFormat, ok := user.(User)
+	if !ok {
+		http.Error(w, "Ошибка при конвертации пользователя", http.StatusInternalServerError)
+		return
+	}
+
 	resp := map[string]string{
-		"name":  user.Name,
-		"email": user.Email,
+		"name":  usFormat.Name,
+		"email": usFormat.Email,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -220,24 +272,19 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleFTPPost(w http.ResponseWriter, r *http.Request) {
-	var payload map[string]interface{}
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	var payload UploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
 		return
 	}
-	userVal, ok := payload["user"].(string)
-	if !ok || userVal == "" {
-		http.Error(w, "Отсутствует или неверное поле user", http.StatusBadRequest)
-		return
-	}
-	fileName, ok := payload["fileName"].(string)
-	if !ok || fileName == "" {
-		http.Error(w, "Отсутствует или неверное поле fileName", http.StatusBadRequest)
+
+	if err := validate.Struct(payload); err != nil {
+		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
 		return
 	}
 
-	dirPath := fmt.Sprintf("./%s", userVal)
+	dirPath := fmt.Sprintf("./%s", payload.Email)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		http.Error(w, "Не удалось создать директорию", http.StatusInternalServerError)
 		return
@@ -249,7 +296,7 @@ func handleFTPPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := fmt.Sprintf("%s/%s", dirPath, fileName)
+	filePath := fmt.Sprintf("%s/%s", dirPath, payload.FileName)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		http.Error(w, "Ошибка при сохранении файла", http.StatusInternalServerError)
 		return
@@ -259,7 +306,7 @@ func handleFTPPost(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprintf(w, "Файл сохранен по пути: %s", filePath)
 }
 
-func handleFTPGet(w http.ResponseWriter, r *http.Request) {
+func handleGet(w http.ResponseWriter, r *http.Request) {
 	userVal := r.URL.Query().Get("user")
 	fileName := r.URL.Query().Get("filename")
 	if userVal == "" || fileName == "" {
@@ -339,6 +386,8 @@ func main() {
 	}
 	secretKey = []byte(*secretFlag)
 
+	validate = validator.New()
+
 	router := mux.NewRouter()
 	router.HandleFunc("/auth/signup", handleSignUp).Methods(http.MethodPost)
 	router.HandleFunc("/auth/login", handleLogin).Methods(http.MethodPost)
@@ -346,8 +395,8 @@ func main() {
 	router.HandleFunc("/auth/logout", handleLogout).Methods(http.MethodPost)
 	router.HandleFunc("/user/profile", handleProfile).Methods(http.MethodGet)
 
-	router.HandleFunc("/ftp", handleFTPPost).Methods(http.MethodPost)
-	router.HandleFunc("/ftp", handleFTPGet).Methods(http.MethodGet)
+	router.HandleFunc("/ftp", handleUpload).Methods(http.MethodPost)
+	router.HandleFunc("/ftp", handleGet).Methods(http.MethodGet)
 
 	log.Println("Сервер запущен на порту 8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {
