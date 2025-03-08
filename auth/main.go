@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,41 @@ import (
 )
 
 var validate *validator.Validate
+
+type UploadCredentials struct {
+	ProjName string `json:"projName"`
+	Data     string `json:"data"`
+}
+type FileItem struct {
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Content    string   `json:"content"`
+	Data       []string `json:"data"`
+	CreateTime string   `json:"create_time"`
+	UpdateTime string   `json:"update_time"`
+}
+
+var files = []FileItem{
+	{
+		ID:         "codes1",
+		Title:      "Back Code 1",
+		Content:    "0 mb",
+		Data:       []string{"BackString"},
+		CreateTime: time.Now().Format(time.RFC3339),
+		UpdateTime: time.Now().Format(time.RFC3339),
+	},
+	{
+		ID:         "codes2",
+		Title:      "Back Code 2",
+		Content:    "0 mb",
+		Data:       []string{"BackString1", "BackString2", "BackString3"},
+		CreateTime: time.Now().Format(time.RFC3339),
+		UpdateTime: time.Now().Format(time.RFC3339),
+	},
+}
+
+// mu — мьютекс (RWMutex) для безопасного конкурентного доступа к "files".
+var mu sync.RWMutex
 
 type SignUpRequest struct {
 	Email    string `json:"email" validate:"required,email"`
@@ -340,69 +374,49 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
-	var payload UploadRequest
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		logger.Error("HTTP", "handleUpload: ошибка декодирования JSON: %v", err)
-		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
-		return
-	}
 
-	if err := validate.Struct(payload); err != nil {
-		logger.Error("HTTP", "handleUpload: ошибка валидации: %v", err)
-		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
-		return
-	}
+	logger.Info("HTTP", "handleUpload: входящий запрос на /file (POST)")
 
-	dirPath := fmt.Sprintf("./%s", payload.Email)
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		logger.Error("HTTP", "handleUpload: не удалось создать директорию: %v", err)
-		http.Error(w, "Не удалось создать директорию", http.StatusInternalServerError)
-		return
-	}
-
-	data, err := json.Marshal(payload)
+	var creds UploadCredentials
+	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
-		logger.Error("HTTP", "handleUpload: ошибка маршаллинга JSON: %v", err)
-		http.Error(w, "Ошибка при обработке JSON", http.StatusInternalServerError)
+		logger.Info("HTTP", "handleUpload: ошибка парсинга JSON — "+err.Error())
+		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	logger.Info("HTTP", "handleUpload: успешно распарсили JSON")
 
-	filePath := fmt.Sprintf("%s/%s", dirPath, payload.FileName)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		logger.Error("HTTP", "handleUpload: ошибка записи файла: %v", err)
-		http.Error(w, "Ошибка при сохранении файла", http.StatusInternalServerError)
-		return
+	mu.Lock()
+	defer mu.Unlock()
+
+	logger.Info("HTTP", "handleUpload: ищем FileItem с ID = "+creds.ProjName)
+	for i := range files {
+		if files[i].ID == creds.ProjName {
+			files[i].Data = append(files[i].Data, creds.Data)
+			files[i].UpdateTime = time.Now().Format(time.RFC3339)
+			logger.Info("HTTP", "handleUpload: успешно добавили Data в FileItem с ID = "+creds.ProjName)
+			break
+		}
 	}
 
-	logger.Info("HTTP", "handleUpload: файл %s сохранен для пользователя %s", payload.FileName, payload.Email)
-	w.WriteHeader(http.StatusCreated)
-	_, _ = fmt.Fprintf(w, "Файл сохранен по пути: %s", filePath)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"message":"success"}`))
+	logger.Info("HTTP", "handleUpload: ответ отдан, статус 200")
 }
 
-func handleGet(w http.ResponseWriter, r *http.Request) {
-	userVal := r.URL.Query().Get("user")
-	fileName := r.URL.Query().Get("filename")
-	if userVal == "" || fileName == "" {
-		logger.Info("HTTP", "handleGet: отсутствуют параметры user или filename")
-		http.Error(w, "Отсутствуют параметры user или filename", http.StatusBadRequest)
-		return
-	}
-
-	filePath := fmt.Sprintf("./%s/%s", userVal, fileName)
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		logger.Info("HTTP", "handleGet: файл %s для пользователя %s не найден", fileName, userVal)
-		http.Error(w, "Файл не найден", http.StatusNotFound)
-		return
-	}
-
-	logger.Info("HTTP", "handleGet: файл %s успешно получен для пользователя %s", fileName, userVal)
+func handleGet(w http.ResponseWriter, _ *http.Request) {
+	logger.Info("HTTP", "handleGet: входящий запрос на /file (GET)")
 	w.Header().Set("Content-Type", "application/json")
-	if _, err := w.Write(data); err != nil {
-		logger.Error("HTTP", "handleGet: ошибка отправки данных: %v", err)
-		http.Error(w, "Ошибка при отправке данных", http.StatusInternalServerError)
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if err := json.NewEncoder(w).Encode(files); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		logger.Info("HTTP", "handleGet: ошибка при кодировании JSON — "+err.Error())
 		return
 	}
+	logger.Info("HTTP", "handleGet: успешно вернули массив files")
 }
 
 func validateAccessToken(r *http.Request) (string, error) {
@@ -471,6 +485,7 @@ func parseJWT(tokenStr string) (*CustomClaims, error) {
 func CorsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
+		w.Header().Set("Access-Control-Expose-Headers", "Authorization")
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -493,13 +508,10 @@ func main() {
 		log.Fatal("Не задан секретный ключ. Укажите --secret-key=<key>")
 	}
 	secretKey = []byte(*secretFlag)
-
 	logger.InitLogger(logger.DefaultConfig())
 	validate = validator.New()
 
 	router := mux.NewRouter()
-
-	router.Use(CorsMiddleware)
 
 	router.HandleFunc("/auth/signup", handleSignUp).Methods(http.MethodPost)
 	router.HandleFunc("/auth/login", handleLogin).Methods(http.MethodPost)
@@ -510,7 +522,7 @@ func main() {
 	router.HandleFunc("/file", handleGet).Methods(http.MethodGet)
 
 	logger.Info("HTTP", "Сервер запущен на порту 8080")
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	if err := http.ListenAndServe(":8080", CorsMiddleware(router)); err != nil {
 		logger.Error("HTTP", "Ошибка запуска сервера: %v", err)
 		log.Fatal("Ошибка запуска сервера:", err)
 	}
