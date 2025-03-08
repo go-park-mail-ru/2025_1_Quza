@@ -415,16 +415,23 @@ func handleGet(w http.ResponseWriter, _ *http.Request) {
 
 func validateAccessToken(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		logger.Info("HTTP", "validateAccessToken: заголовок Authorization отсутствует")
-		return "", errors.New("заголовок Authorization отсутствует")
+	var tokenStr string
+	if authHeader != "" {
+		parts := strings.Split(authHeader, " ")
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			tokenStr = parts[1]
+		}
 	}
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		logger.Info("HTTP", "validateAccessToken: некорректный заголовок Authorization")
-		return "", errors.New("некорректный заголовок Authorization")
+
+	if tokenStr == "" {
+		cookie, err := r.Cookie("access_token")
+		if err != nil {
+			logger.Info("HTTP", "validateAccessToken: access token не найден ни в заголовке, ни в cookies")
+			return "", errors.New("access token не предоставлен")
+		}
+		tokenStr = cookie.Value
 	}
-	tokenStr := parts[1]
+
 	claims, err := parseJWT(tokenStr)
 	if err != nil {
 		logger.Info("HTTP", "validateAccessToken: ошибка парсинга JWT: %v", err)
