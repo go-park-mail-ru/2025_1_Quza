@@ -68,12 +68,6 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token" validate:"required"`
 }
 
-type UploadRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	File     string `json:"file" validate:"required"`
-	FileName string `json:"file_name" validate:"required"`
-}
-
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
