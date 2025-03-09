@@ -19,6 +19,22 @@ import (
 
 var validate *validator.Validate
 
+func jsonError(w http.ResponseWriter, statusCode int, errMsg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": errMsg,
+	})
+}
+
+func jsonSuccess(w http.ResponseWriter, statusCode int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": msg,
+	})
+}
+
 type UploadCredentials struct {
 	ProjName string `json:"projName"`
 	Data     string `json:"data"`
@@ -51,7 +67,6 @@ var files = []FileItem{
 	},
 }
 
-// mu — мьютекс (RWMutex) для безопасного конкурентного доступа к "files".
 var mu sync.RWMutex
 
 type SignUpRequest struct {
@@ -98,19 +113,19 @@ func handleSignUp(w http.ResponseWriter, r *http.Request) {
 	var req SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Error("HTTP", "handleSignUp: ошибка декодирования JSON: %v", err)
-		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return
 	}
 
 	if err := validate.Struct(req); err != nil {
 		logger.Error("HTTP", "handleSignUp: ошибка валидации: %v", err)
-		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Ошибка валидации")
 		return
 	}
 
 	if _, exists := users.Load(req.Email); exists {
 		logger.Info("HTTP", "handleSignUp: попытка регистрации уже существующего пользователя %s", req.Email)
-		http.Error(w, "Пользователь с таким email уже существует", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Пользователь с таким email уже существует")
 		return
 	}
 
@@ -121,54 +136,54 @@ func handleSignUp(w http.ResponseWriter, r *http.Request) {
 	users.Store(user.Email, user)
 
 	logger.Info("HTTP", "handleSignUp: пользователь %s успешно зарегистрирован", user.Email)
-	w.WriteHeader(http.StatusCreated)
-	_, _ = fmt.Fprintf(w, "Пользователь %s успешно зарегистрирован\n", user.Email)
+	jsonSuccess(w, http.StatusCreated, fmt.Sprintf("Пользователь %s успешно зарегистрирован", user.Email))
 }
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Error("HTTP", "handleLogin: ошибка декодирования JSON: %v", err)
-		http.Error(w, "Неверный формат JSON", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Неверный формат JSON")
 		return
 	}
 
 	if err := validate.Struct(req); err != nil {
 		logger.Error("HTTP", "handleLogin: ошибка валидации: %v", err)
-		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Ошибка валидации")
 		return
 	}
 
 	user, ok := users.Load(req.Email)
 	if !ok {
 		logger.Info("HTTP", "handleLogin: пользователь %s не найден", req.Email)
-		http.Error(w, "Пользователь не найден", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "Пользователь не найден")
 		return
 	}
 
 	us, ok := user.(User)
 	if !ok {
 		logger.Error("HTTP", "handleLogin: ошибка приведения типа пользователя")
-		http.Error(w, "Ошибка при конвертации пользователя", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка при конвертации пользователя")
 		return
 	}
 
 	if us.Password != req.Password {
 		logger.Info("HTTP", "handleLogin: неверный пароль для пользователя %s", req.Email)
-		http.Error(w, "Неверный пароль", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "Неверный пароль")
 		return
 	}
 
 	accessToken, err := generateJWT(us.Email, accessTokenTTL)
 	if err != nil {
 		logger.Error("HTTP", "handleLogin: не удалось сгенерировать access-токен: %v", err)
-		http.Error(w, "Не удалось сгенерировать access-токен", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Не удалось сгенерировать access-токен")
 		return
 	}
 
 	refreshToken, err := generateJWT(us.Email, refreshTokenTTL)
 	if err != nil {
 		logger.Error("HTTP", "handleLogin: не удалось сгенерировать refresh-токен: %v", err)
-		http.Error(w, "Не удалось сгенерировать refresh-токен", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Не удалось сгенерировать refresh-токен")
 		return
 	}
 
@@ -194,17 +209,14 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logger.Info("HTTP", "handleLogin: пользователь %s успешно вошел в систему", req.Email)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"message": "Логин успешен",
-	})
+	jsonSuccess(w, http.StatusOK, "Логин успешен")
 }
 
 func handleRefresh(w http.ResponseWriter, r *http.Request) {
 	refreshCookie, err := r.Cookie("refresh_token")
 	if err != nil {
 		logger.Error("HTTP", "handleRefresh: refresh-токен не найден в cookies: %v", err)
-		http.Error(w, "refresh-токен не найден", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен не найден")
 		return
 	}
 
@@ -213,28 +225,28 @@ func handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	if err := validate.Struct(req); err != nil {
 		logger.Error("HTTP", "handleRefresh: ошибка валидации: %v", err)
-		http.Error(w, "Ошибка валидации", http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Ошибка валидации")
 		return
 	}
 
 	session, ok := sessions.Load(req.RefreshToken)
 	if !ok {
 		logger.Info("HTTP", "handleRefresh: refresh-токен %s не найден или отозван", req.RefreshToken)
-		http.Error(w, "refresh-токен не найден или отозван", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен не найден или отозван")
 		return
 	}
 
 	formatSession, ok := session.(Session)
 	if !ok {
 		logger.Error("HTTP", "handleRefresh: ошибка приведения типа сессии")
-		http.Error(w, "Ошибка при конвертации сессии", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка при конвертации сессии")
 		return
 	}
 
 	if time.Now().After(formatSession.ExpiresAt) {
 		sessions.Delete(req.RefreshToken)
 		logger.Info("HTTP", "handleRefresh: refresh-токен %s просрочен", req.RefreshToken)
-		http.Error(w, "refresh-токен просрочен", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен просрочен")
 		return
 	}
 
@@ -242,20 +254,20 @@ func handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		sessions.Delete(req.RefreshToken)
 		logger.Error("HTTP", "handleRefresh: невалидный refresh-токен: %v", err)
-		http.Error(w, "refresh-токен невалиден", http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен невалиден")
 		return
 	}
 
 	newAccess, err := generateJWT(claims.Email, accessTokenTTL)
 	if err != nil {
 		logger.Error("HTTP", "handleRefresh: ошибка генерации нового access-токена: %v", err)
-		http.Error(w, "Ошибка генерации нового access-токена", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка генерации нового access-токена")
 		return
 	}
 	newRefresh, err := generateJWT(claims.Email, refreshTokenTTL)
 	if err != nil {
 		logger.Error("HTTP", "handleRefresh: ошибка генерации нового refresh-токена: %v", err)
-		http.Error(w, "Ошибка генерации нового refresh-токена", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка генерации нового refresh-токена")
 		return
 	}
 
@@ -282,33 +294,33 @@ func handleRefresh(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logger.Info("HTTP", "handleRefresh: refresh-токен успешно обновлен для пользователя %s", claims.Email)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"message": "Токены обновлены",
-	})
+	jsonSuccess(w, http.StatusOK, "Токены обновлены")
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	refreshCookie, err := r.Cookie("refresh_token")
 	if err != nil {
 		logger.Info("HTTP", "handleLogout: refresh-токен не найден в cookies")
-	} else {
-		var req RefreshRequest
-		req.RefreshToken = refreshCookie.Value
-
-		if err := validate.Struct(req); err != nil {
-			logger.Error("HTTP", "handleLogout: ошибка валидации: %v", err)
-			http.Error(w, "Ошибка валидации", http.StatusBadRequest)
-			return
-		}
-
-		if _, ok := sessions.Load(req.RefreshToken); !ok {
-			logger.Info("HTTP", "handleLogout: refresh-токен %s не найден или уже отозван", req.RefreshToken)
-			http.Error(w, "refresh-токен не найден или уже отозван", http.StatusUnauthorized)
-			return
-		}
-		sessions.Delete(req.RefreshToken)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен не найден")
+		return
 	}
+
+	var req RefreshRequest
+	req.RefreshToken = refreshCookie.Value
+
+	if err := validate.Struct(req); err != nil {
+		logger.Error("HTTP", "handleLogout: ошибка валидации: %v", err)
+		jsonError(w, http.StatusBadRequest, "Ошибка валидации")
+		return
+	}
+
+	if _, ok := sessions.Load(req.RefreshToken); !ok {
+		logger.Info("HTTP", "handleLogout: refresh-токен %s не найден или уже отозван", req.RefreshToken)
+		jsonError(w, http.StatusUnauthorized, "refresh-токен не найден или уже отозван")
+		return
+	}
+
+	sessions.Delete(req.RefreshToken)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "access_token",
@@ -328,54 +340,50 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	logger.Info("HTTP", "handleLogout: пользователь успешно вышел из системы")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintln(w, "Вы успешно вышли из системы")
+	jsonSuccess(w, http.StatusOK, "Вы успешно вышли из системы")
 }
 
 func handleProfile(w http.ResponseWriter, r *http.Request) {
 	email, err := validateAccessToken(r)
 	if err != nil {
 		logger.Info("HTTP", "handleProfile: ошибка валидации access-токена: %v", err)
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		jsonError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	user, ok := users.Load(email)
 	if !ok {
 		logger.Info("HTTP", "handleProfile: пользователь %s не найден", email)
-		http.Error(w, "Неверный логин или пароль", http.StatusNotFound)
+		jsonError(w, http.StatusNotFound, "Пользователь не найден")
 		return
 	}
 
 	usFormat, ok := user.(User)
 	if !ok {
 		logger.Error("HTTP", "handleProfile: ошибка приведения типа пользователя")
-		http.Error(w, "Ошибка при конвертации пользователя", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка при конвертации пользователя")
 		return
 	}
 
 	logger.Info("HTTP", "handleProfile: профиль пользователя %s запрошен", email)
-	resp := map[string]string{
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"name":  usFormat.Name,
 		"email": usFormat.Email,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	}); err != nil {
 		logger.Error("HTTP", "handleProfile: ошибка формирования JSON-ответа: %v", err)
-		http.Error(w, "Ошибка при формировании JSON-ответа", http.StatusInternalServerError)
+		jsonError(w, http.StatusInternalServerError, "Ошибка при формировании JSON-ответа")
 		return
 	}
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
-
 	logger.Info("HTTP", "handleUpload: входящий запрос на /file (POST)")
-
 	var creds UploadCredentials
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
 		logger.Info("HTTP", "handleUpload: ошибка парсинга JSON — "+err.Error())
-		http.Error(w, "Bad request: "+err.Error(), http.StatusBadRequest)
+		jsonError(w, http.StatusBadRequest, "Bad request: "+err.Error())
 		return
 	}
 	logger.Info("HTTP", "handleUpload: успешно распарсили JSON")
@@ -384,17 +392,22 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	defer mu.Unlock()
 
 	logger.Info("HTTP", "handleUpload: ищем FileItem с ID = "+creds.ProjName)
+	found := false
 	for i := range files {
 		if files[i].ID == creds.ProjName {
 			files[i].Data = append(files[i].Data, creds.Data)
 			files[i].UpdateTime = time.Now().Format(time.RFC3339)
 			logger.Info("HTTP", "handleUpload: успешно добавили Data в FileItem с ID = "+creds.ProjName)
+			found = true
 			break
 		}
 	}
+	if !found {
+		jsonError(w, http.StatusNotFound, fmt.Sprintf("FileItem с ID=%s не найден", creds.ProjName))
+		return
+	}
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"message":"success"}`))
+	jsonSuccess(w, http.StatusOK, "success")
 	logger.Info("HTTP", "handleUpload: ответ отдан, статус 200")
 }
 
@@ -406,8 +419,8 @@ func handleGet(w http.ResponseWriter, _ *http.Request) {
 	defer mu.RUnlock()
 
 	if err := json.NewEncoder(w).Encode(files); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		logger.Info("HTTP", "handleGet: ошибка при кодировании JSON — "+err.Error())
+		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	logger.Info("HTTP", "handleGet: успешно вернули массив files")
@@ -470,7 +483,7 @@ func parseJWT(tokenStr string) (*CustomClaims, error) {
 		return secretKey, nil
 	})
 	if err != nil {
-		logger.Error("HTTP]", "parseJWT: ошибка парсинга JWT: %v", err)
+		logger.Error("HTTP", "parseJWT: ошибка парсинга JWT: %v", err)
 		return nil, err
 	}
 
@@ -485,7 +498,6 @@ func parseJWT(tokenStr string) (*CustomClaims, error) {
 
 func CorsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		w.Header().Set("Access-Control-Expose-Headers", "Authorization")
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -512,18 +524,17 @@ func main() {
 	logger.InitLogger(logger.DefaultConfig())
 	validate = validator.New()
 
-	router := mux.NewRouter()
-
-	router.HandleFunc("/auth/signup", handleSignUp).Methods(http.MethodPost)
-	router.HandleFunc("/auth/login", handleLogin).Methods(http.MethodPost)
-	router.HandleFunc("/auth/refresh", handleRefresh).Methods(http.MethodPost)
-	router.HandleFunc("/auth/logout", handleLogout).Methods(http.MethodPost)
-	router.HandleFunc("/user/profile", handleProfile).Methods(http.MethodGet)
-	router.HandleFunc("/file", handleUpload).Methods(http.MethodPost)
-	router.HandleFunc("/file", handleGet).Methods(http.MethodGet)
+	r := mux.NewRouter()
+	r.HandleFunc("/auth/signup", handleSignUp).Methods(http.MethodPost)
+	r.HandleFunc("/auth/login", handleLogin).Methods(http.MethodPost)
+	r.HandleFunc("/auth/refresh", handleRefresh).Methods(http.MethodPost)
+	r.HandleFunc("/auth/logout", handleLogout).Methods(http.MethodPost)
+	r.HandleFunc("/user/profile", handleProfile).Methods(http.MethodGet)
+	r.HandleFunc("/file", handleUpload).Methods(http.MethodPost)
+	r.HandleFunc("/file", handleGet).Methods(http.MethodGet)
 
 	logger.Info("HTTP", "Сервер запущен на порту 8080")
-	if err := http.ListenAndServe(":8080", CorsMiddleware(router)); err != nil {
+	if err := http.ListenAndServe(":8080", CorsMiddleware(r)); err != nil {
 		logger.Error("HTTP", "Ошибка запуска сервера: %v", err)
 		log.Fatal("Ошибка запуска сервера:", err)
 	}
