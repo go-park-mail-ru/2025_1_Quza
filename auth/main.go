@@ -50,21 +50,24 @@ type FileItem struct {
 
 var files = []FileItem{
 	{
-		ID:         "codes1",
-		Title:      "Back Code 1",
-		Content:    "0 mb",
-		Data:       []string{"BackString"},
+		ID:      "codes1",
+		Title:   "Back Code 1",
+		Content: "0 mb",
+		Data: []string{
+			"Добро пожаловать! Это основное место работы.",
+			"Здесь можно добавлять блоки, а в будущем еще изменять и запускать",
+		},
 		CreateTime: time.Now().Format(time.RFC3339),
 		UpdateTime: time.Now().Format(time.RFC3339),
 	},
-	{
-		ID:         "codes2",
-		Title:      "Back Code 2",
-		Content:    "0 mb",
-		Data:       []string{"BackString1", "BackString2", "BackString3"},
-		CreateTime: time.Now().Format(time.RFC3339),
-		UpdateTime: time.Now().Format(time.RFC3339),
-	},
+	//{
+	//	ID:         "codes2",
+	//	Title:      "Back Code 2",
+	//	Content:    "0 mb",
+	//	Data:       []string{"BackString1", "BackString2", "BackString3"},
+	//	CreateTime: time.Now().Format(time.RFC3339),
+	//	UpdateTime: time.Now().Format(time.RFC3339),
+	//},
 }
 
 var mu sync.RWMutex
