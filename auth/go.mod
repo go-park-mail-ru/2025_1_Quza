@@ -3,8 +3,6 @@ module github.com/go-park-mail-ru/2025_1_Quza/auth
 go 1.23.6
 
 require (
-	github.com/Dnlbb/auth v0.0.0-20250202133128-25eb3187b951
-	github.com/Dnlbb/platform_common v0.0.0-20241104122631-d7f17ae48ff2
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-park-mail-ru/2025_1_Quza/platform v0.0.0-20250312125700-d71234a032ce
@@ -17,6 +15,7 @@ require (
 )
 
 require (
+	github.com/Dnlbb/platform_common v0.0.0-20241104122631-d7f17ae48ff2 // indirect
 	github.com/IBM/sarama v1.43.3 // indirect
 	github.com/Masterminds/squirrel v1.5.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
