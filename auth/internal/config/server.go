@@ -1,6 +1,14 @@
 package config
 
-type Server struct {
+type HTTP struct {
 	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Port string `yaml:"port"`
+}
+type GRPC struct {
+	Host string `yaml:"host"`
+	Port string `yaml:"port"`
+}
+type Server struct {
+	HTTP HTTP `yaml:"http"`
+	GRPC GRPC `yaml:"grpc"`
 }

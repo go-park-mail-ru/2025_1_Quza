@@ -12,6 +12,7 @@ import (
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/config"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/repository"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/service"
+	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/handler"
 	"github.com/go-park-mail-ru/2025_1_Quza/platform/pkg/logger"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,9 @@ type serviceProvider struct {
 	repositories *repository.Repositories
 
 	services *service.Services
+
+	userController          *handler.UserController
+	authorizationController *handler.AuthController
 }
 
 func newServiceProvider() *serviceProvider {
@@ -159,4 +163,61 @@ func (s *serviceProvider) Repositories() (*repository.Repositories, error) {
 	}
 
 	return s.repositories, nil
+}
+
+func (s *serviceProvider) Services() (*service.Services, error) {
+	if s.services == nil {
+		repositories, err := s.Repositories()
+		if err != nil {
+			logger.Warn("DB", "error init db", err)
+			return nil, err
+		}
+
+		cache, err := s.UserCache()
+		if err != nil {
+			logger.Warn("DB", "error init cache", err)
+			return nil, err
+		}
+
+		deps := service.Deps{
+			Version:    "1.0.0",
+			Repository: *repositories,
+			Cache:      *cache,
+			Config:     s.configs.AUTH,
+		}
+
+		services := service.NewServices(deps)
+
+		s.services = &services
+	}
+
+	return s.services, nil
+}
+
+func (s *serviceProvider) UserController(ctx context.Context) (*handler.UserController, error) {
+	if s.userController == nil {
+		_, err := s.Services()
+		if err != nil {
+			logger.Warn("SERVICES", "error init services", err)
+			return nil, err
+		}
+
+		s.userController = handler.NewUserController(s.services.User)
+	}
+
+	return s.userController, nil
+}
+
+func (s *serviceProvider) AuthorizationController(ctx context.Context) (*handler.AuthController, error) {
+	if s.authorizationController == nil {
+		_, err := s.Services()
+		if err != nil {
+			logger.Warn("SERVICES", "error init services", err)
+			return nil, err
+		}
+
+		s.authorizationController = handler.NewAuthControllerAuthorization(s.services.Auth)
+	}
+
+	return s.authorizationController, nil
 }

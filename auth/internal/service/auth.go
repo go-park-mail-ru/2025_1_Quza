@@ -47,8 +47,8 @@ func NewAuthService(cache redis.UserCacheInterface,
 	}
 }
 
-func GenerateToken(info model.UserPayload, secretKey []byte, duration time.Duration) (string, error) {
-	claims := model.UserClaims{
+func GenerateToken(info UserPayload, secretKey []byte, duration time.Duration) (string, error) {
+	claims := UserClaims{
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(duration).Unix(),
 		},
@@ -60,10 +60,10 @@ func GenerateToken(info model.UserPayload, secretKey []byte, duration time.Durat
 	return token.SignedString(secretKey)
 }
 
-func VerifyToken(tokenStr string, secretKey []byte) (*model.UserClaims, error) {
+func VerifyToken(tokenStr string, secretKey []byte) (*UserClaims, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
-		&model.UserClaims{},
+		&UserClaims{},
 		func(token *jwt.Token) (interface{}, error) {
 			_, ok := token.Method.(*jwt.SigningMethodHMAC)
 			if !ok {
@@ -78,7 +78,7 @@ func VerifyToken(tokenStr string, secretKey []byte) (*model.UserClaims, error) {
 		return nil, errors.New("invalid token")
 	}
 
-	claims, ok := token.Claims.(*model.UserClaims)
+	claims, ok := token.Claims.(*UserClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid token claims")
 	}
@@ -128,7 +128,7 @@ func (s AuthService) GetAccessToken(ctx context.Context, refreshToken string) (*
 
 	timeExpiration := s.config.AccessTokenExpire
 
-	accessToken, err := GenerateToken(model.UserPayload{
+	accessToken, err := GenerateToken(UserPayload{
 		Username: user.Name,
 		Role:     user.Role,
 	},
@@ -156,7 +156,7 @@ func (s AuthService) GetRefreshToken(ctx context.Context, refreshToken string) (
 
 	timeExpiration := s.config.RefreshTokenExpire
 
-	accessToken, err := GenerateToken(model.UserPayload{
+	accessToken, err := GenerateToken(UserPayload{
 		Username: user.Name,
 		Role:     user.Role,
 	},
@@ -183,7 +183,7 @@ func (s AuthService) Login(ctx context.Context, user model.User) (*string, error
 
 	timeExpiration := s.config.RefreshTokenExpire
 
-	refreshToken, err := GenerateToken(model.UserPayload{
+	refreshToken, err := GenerateToken(UserPayload{
 		Username: user.Name,
 		Role:     User.Role,
 	},

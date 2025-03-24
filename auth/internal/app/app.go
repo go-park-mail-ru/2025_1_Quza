@@ -4,17 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/Dnlbb/platform_common/pkg/closer"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/interceptor"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/auth_v1"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/user_v1"
 	_ "github.com/go-park-mail-ru/2025_1_Quza/auth/statik" // Нужно для инициализации файловой системы.
+	"github.com/go-park-mail-ru/2025_1_Quza/platform/pkg/closer"
 	"github.com/go-park-mail-ru/2025_1_Quza/platform/pkg/logger"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/rakyll/statik/fs"
@@ -44,7 +43,7 @@ func (a *App) initDeps(ctx context.Context) error {
 	inits := []func(context.Context) error{
 		a.initServiceProvider,
 		a.initConfig,
-		a.initLogger,
+		a.initloggerger,
 		a.initGRPCServer,
 		a.initHTTPServer,
 		a.initSwaggerServer,
@@ -68,7 +67,7 @@ func (a *App) initConfig(_ context.Context) error {
 	return a.serviceProvider.Configs()
 }
 
-func (a *App) initLogger(ctx context.Context) error {
+func (a *App) initloggerger(ctx context.Context) error {
 	logger.InitLogger(logger.Config{
 		Level:      a.serviceProvider.configs.LOG.Level,
 		Format:     a.serviceProvider.configs.LOG.Format,
@@ -78,6 +77,8 @@ func (a *App) initLogger(ctx context.Context) error {
 		MaxAgeDays: a.serviceProvider.configs.LOG.MaxAgeDays,
 		Compress:   a.serviceProvider.configs.LOG.Compress,
 	})
+
+	return nil
 }
 
 func (a *App) initGRPCServer(ctx context.Context) error {
@@ -86,8 +87,18 @@ func (a *App) initGRPCServer(ctx context.Context) error {
 
 	reflection.Register(a.grpcServer)
 
-	user_v1.RegisterUserApiServer(a.grpcServer, a.serviceProvider.GetUserController(ctx))
-	auth_v1.RegisterAuthServer(a.grpcServer, a.serviceProvider.GetAuthorizationController(ctx))
+	userController, err := a.serviceProvider.UserController(ctx)
+	if err != nil {
+		return err
+	}
+
+	authController, err := a.serviceProvider.AuthorizationController(ctx)
+	if err != nil {
+		return err
+	}
+
+	user_v1.RegisterUserApiServer(a.grpcServer, userController)
+	auth_v1.RegisterAuthServer(a.grpcServer, authController)
 
 	return nil
 }
@@ -97,7 +108,7 @@ func (a *App) initHTTPServer(ctx context.Context) error {
 
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 
-	err := userv1.RegisterUserApiHandlerFromEndpoint(ctx, mux, a.serviceProvider.GetGRPCConfig().Address(), opts)
+	err := user_v1.RegisterUserApiHandlerFromEndpoint(ctx, mux, a.serviceProvider.configs.SERVER.GRPC.Host+":"+a.serviceProvider.configs.SERVER.GRPC.Port, opts)
 	if err != nil {
 		return err
 	}
@@ -110,7 +121,7 @@ func (a *App) initHTTPServer(ctx context.Context) error {
 	})
 
 	a.httpServer = &http.Server{
-		Addr:              a.serviceProvider.GetHTTPConfig().Address(),
+		Addr:              a.serviceProvider.configs.SERVER.HTTP.Host + ":" + a.serviceProvider.configs.SERVER.HTTP.Port,
 		Handler:           cors.Handler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -129,7 +140,7 @@ func (a *App) initSwaggerServer(_ context.Context) error {
 	mux.HandleFunc("/api.swagger.json", SwaggerFile("/api.swagger.json"))
 
 	a.swaggerServer = &http.Server{
-		Addr:              a.serviceProvider.GetSwaggerConfig().Address(),
+		Addr:              a.serviceProvider.configs.SWAGGER.Host + ":" + a.serviceProvider.configs.SWAGGER.Port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -137,7 +148,6 @@ func (a *App) initSwaggerServer(_ context.Context) error {
 	return nil
 }
 
-// SwaggerFile реализация документации.
 func SwaggerFile(path string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		statikFS, err := fs.New()
@@ -174,7 +184,7 @@ func (a *App) Run() error {
 		defer wg.Done()
 		err := a.runGRPCServer()
 		if err != nil {
-			log.Printf("grpc server error: %v", err)
+			logger.Info("GRPC", "grpc server error: %v", err)
 		}
 	}()
 
@@ -183,7 +193,7 @@ func (a *App) Run() error {
 		defer wg.Done()
 		err := a.runHTTPServer()
 		if err != nil {
-			log.Printf("http server error: %v", err)
+			logger.Info("HTTP", "http server error: %v", err)
 		}
 	}()
 
@@ -192,7 +202,7 @@ func (a *App) Run() error {
 		defer wg.Done()
 		err := a.runSwaggerServer()
 		if err != nil {
-			log.Printf("swagger server error: %v", err)
+			logger.Info("SWAGGER", "swagger server error: %v", err)
 		}
 	}()
 
@@ -202,34 +212,34 @@ func (a *App) Run() error {
 }
 
 func (a *App) runGRPCServer() error {
-	log.Printf("starting gRPC server on %s", a.serviceProvider.GetGRPCConfig().Address())
+	logger.Info("starting gRPC server on %s", a.serviceProvider.configs.SERVER.GRPC.Host+":"+a.serviceProvider.configs.SERVER.GRPC.Port)
 
-	listener, err := net.Listen("tcp", a.serviceProvider.GetGRPCConfig().Address())
+	listener, err := net.Listen("tcp", a.serviceProvider.configs.SERVER.GRPC.Host+":"+a.serviceProvider.configs.SERVER.GRPC.Port)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Fatal("serve GRPC", "failed to listen: %v", err)
 	}
 
 	err = a.grpcServer.Serve(listener)
 	if err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		logger.Fatal("serve GRPC", "failed to listen: %v", err)
 	}
 
 	return nil
 }
 
 func (a *App) runHTTPServer() error {
-	log.Printf("starting HTTP server on %s", a.serviceProvider.GetHTTPConfig().Address())
+	logger.Info("starting HTTP server on %s", a.serviceProvider.configs.SERVER.HTTP.Host+":"+a.serviceProvider.configs.SERVER.HTTP.Port)
 
 	err := a.httpServer.ListenAndServe()
 	if err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		logger.Fatal("serve HTTP", "failed to serve: %v", err)
 	}
 
 	return nil
 }
 
 func (a *App) runSwaggerServer() error {
-	log.Printf("Swagger server is running on %s", a.serviceProvider.GetSwaggerConfig().Address())
+	logger.Info("Swagger server is running on %s", a.serviceProvider.configs.SWAGGER.Host+":"+a.serviceProvider.configs.SWAGGER.Port)
 
 	err := a.swaggerServer.ListenAndServe()
 	if err != nil {

@@ -7,16 +7,16 @@ import (
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/service"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/dto"
 	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/user_v1"
-	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/request"
+	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/request"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type UserController struct {
 	user_v1.UnimplementedUserApiServer
-	userService service.UserService
+	userService service.IUserService
 }
 
-func NewUserController(user service.UserService) *UserController {
+func NewUserController(user service.IUserService) *UserController {
 	return &UserController{userService: user}
 }
 
