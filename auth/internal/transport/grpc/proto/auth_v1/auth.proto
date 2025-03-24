@@ -5,7 +5,7 @@ package api.auth_v1;
 import "validate/validate.proto";
 import "google/protobuf/empty.proto";
 
-option go_package = "github.com/Dnlbb/user/pkg/auth_v1;auth_v1";
+option go_package = "github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/auth_v1;auth_v1";
 
 service Auth {
 rpc Login(LoginRequest) returns (LoginResponse);
@@ -16,7 +16,7 @@ rpc Check(CheckRequest) returns (google.protobuf.Empty);
 
 message LoginRequest {
 string username = 1 [(validate.rules).string = {min_len: 1, max_len: 255}];
-string password = 2 [(validate.rules).string = {min_len: 1, max_len: 255}];
+string password = 2 [(validate.rules).string = {min_len: 8, max_len: 255}];
 }
 
 message LoginResponse {

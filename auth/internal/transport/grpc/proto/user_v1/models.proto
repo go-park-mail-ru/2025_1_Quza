@@ -4,7 +4,7 @@ package api.user_v1;
 
 import "validate/validate.proto";
 
-option go_package = "github.com/Dnlbb/user/pkg/user_v1;user_v1";
+option go_package = "github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/user_v1;user_v1";
 
 
 enum Role {

@@ -6,6 +6,8 @@ out/
 
 bin/
 pkg/
+auth/vendor.protogen
+auth/bin
 
 vendor/
 

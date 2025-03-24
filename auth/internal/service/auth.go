@@ -17,6 +17,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type UserPayload struct {
+	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
+type UserClaims struct {
+	jwt.StandardClaims
+	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
 type AuthService struct {
 	cache        redis.UserCacheInterface
 	storage      repository.UserRepositoryInterface

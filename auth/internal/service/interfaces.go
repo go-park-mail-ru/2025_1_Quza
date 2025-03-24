@@ -7,7 +7,7 @@ import (
 )
 
 type IUserService interface {
-	Create(ctx context.Context, user model.User) (*int, error)
+	Create(ctx context.Context, user model.User) (int, error)
 	Delete(ctx context.Context, id int) error
 	Update(ctx context.Context, userUpdate model.User) error
 	GetById(ctx context.Context, id int) (*model.User, error)

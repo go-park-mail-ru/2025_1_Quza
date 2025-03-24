@@ -59,18 +59,18 @@ func (s UserService) Delete(ctx context.Context, userID int) error {
 	return nil
 }
 
-func (s UserService) Create(ctx context.Context, user model.User) (*int, error) {
+func (s UserService) Create(ctx context.Context, user model.User) (int, error) {
 	var id int
 	id, err := s.storage.Save(ctx, user)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if err = s.cache.Create(ctx, id, user); err != nil {
 		logger.Info("REDIS", "failed to create user")
 	}
 
-	return &id, nil
+	return id, nil
 }
 
 func (s UserService) GetById(ctx context.Context, id int) (*model.User, error) {

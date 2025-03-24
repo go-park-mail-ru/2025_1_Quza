@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package api.user_v1;
 
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
 import "models.proto";
@@ -10,7 +9,7 @@ import "google/api/annotations.proto";
 import "validate/validate.proto";
 import "protoc-gen-openapiv2/options/annotations.proto";
 
-option go_package = "github.com/Dnlbb/user/pkg/user_v1;user_v1";
+option go_package = "github.com/go-park-mail-ru/2025_1_Quza/auth/internal/transport/grpc/proto/user_v1;user_v1";
 
 option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
   info: {
@@ -76,8 +75,6 @@ message GetRequest {
 message GetResponse {
   int64 id = 1;
   User user = 2;
-  google.protobuf.Timestamp created_at = 3;
-  google.protobuf.Timestamp updated_at = 4;
 }
 
 message UpdateRequest {
