@@ -1,10 +1,6 @@
-# Определяем локальные переменные внутри Makefile
 LOCAL_BIN := $(CURDIR)/bin
 GOOSE_CMD := $(LOCAL_BIN)/goose
 
-
-MIGRATION_DIR ?= ./migrations
-PG_DSN ?= "postgres://user:password@localhost:5432/dbname?sslmode=disable"
 
 
 install-minimock:

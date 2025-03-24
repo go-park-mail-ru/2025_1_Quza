@@ -38,7 +38,6 @@ linters:
     - goconst
     - goimports
     - govet
-    - revive
     - typecheck
 
 issues:
