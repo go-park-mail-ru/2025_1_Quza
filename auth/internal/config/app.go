@@ -6,12 +6,13 @@ import (
 )
 
 type Config struct {
-	AUTH         Auth
-	REDIS        Redis
-	DB           Database
-	LOG          Logger
-	PasswordSalt string
-	SERVER       Server
+	AUTH         Auth          `yaml:"AUTH"`
+	REDIS        Redis         `yaml:"REDIS"`
+	DB           Database      `yaml:"DB"`
+	LOG          Logger        `yaml:"LOG"`
+	PasswordSalt string        `yaml:"PasswordSalt"`
+	SERVER       Server        `yaml:"SERVER"`
+	SWAGGER      SwaggerConfig `yaml:"SWAGGER"`
 }
 
 func NewConfig(configPath string) (*Config, error) {
