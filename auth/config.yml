@@ -1,0 +1,30 @@
+log:
+  compress: false
+  debug: debug
+  dir: logs/app.log
+  max_age: 28
+  max_backups: 5
+  max_size: 20
+redis:
+  address:
+    - localhost:6379
+  cluster_mode: false
+  db: 1
+  max_retry: 10
+  password:
+  username:
+DB:
+  dsn: postgres:postgres@localhost:5432/auth?sslmode=disable
+  max_idle_conn: 10
+  max_open_conn: 100
+auth:
+  access_token_ttl: 15
+  key: d1234567890-0987654321234567890
+  refresh_token_ttl: 540
+SERVER:
+  grpc:
+    host: localhost
+    port: 5050
+  http:
+    host: localhost
+    port: 8080
