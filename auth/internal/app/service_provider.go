@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/go-park-mail-ru/2025_1_Quza/auth/internal/database"
 	"time"
 
 	"github.com/Dnlbb/platform_common/pkg/closer"
@@ -16,6 +18,7 @@ import (
 	"github.com/go-park-mail-ru/2025_1_Quza/platform/pkg/logger"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type serviceProvider struct {
@@ -130,12 +133,11 @@ func (s *serviceProvider) UserCache() (*myUserCache.UserCacheInterface, error) {
 }
 
 func (s *serviceProvider) PgxPool() (*pgxpool.Pool, error) {
-
 	poolConfig, err := pgxpool.ParseConfig(s.configs.DB.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse DSN: %v", err)
+		return nil, fmt.Errorf("не удалось разобрать DSN: %v", err)
 	}
-
+	fmt.Println(poolConfig)
 	poolConfig.MaxConns = int32(s.configs.DB.MaxOpenConnections)
 	poolConfig.MinConns = int32(s.configs.DB.MaxIdleConnections)
 	poolConfig.MaxConnLifetime = s.configs.DB.MaxConnectionLifetime
@@ -143,7 +145,16 @@ func (s *serviceProvider) PgxPool() (*pgxpool.Pool, error) {
 	ctx := context.Background()
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create connection pool: %v", err)
+		return nil, fmt.Errorf("не удалось создать пул соединений: %v", err)
+	}
+
+	sqlDB, err := sql.Open("pgx", s.configs.DB.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось открыть sql.DB: %v", err)
+	}
+
+	if err := database.Migrate(sqlDB, "postgres"); err != nil {
+		return nil, fmt.Errorf("ошибка при применении миграций: %v", err)
 	}
 
 	return pool, nil

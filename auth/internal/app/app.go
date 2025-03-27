@@ -43,7 +43,7 @@ func (a *App) initDeps(ctx context.Context) error {
 	inits := []func(context.Context) error{
 		a.initServiceProvider,
 		a.initConfig,
-		a.initloggerger,
+		a.initlogger,
 		a.initGRPCServer,
 		a.initHTTPServer,
 		a.initSwaggerServer,
@@ -67,7 +67,7 @@ func (a *App) initConfig(_ context.Context) error {
 	return a.serviceProvider.Configs()
 }
 
-func (a *App) initloggerger(ctx context.Context) error {
+func (a *App) initlogger(ctx context.Context) error {
 	logger.InitLogger(logger.Config{
 		Level:      a.serviceProvider.configs.LOG.Level,
 		Format:     a.serviceProvider.configs.LOG.Format,
